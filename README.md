@@ -13,7 +13,7 @@ This repository contains the LAMMPS input files, the equilibrated interfacial co
 
 ### MD input and configuration
 - `in.interface.txt` — main LAMMPS input script (equilibration + interfacial property measurement)
-- `interface_equil.data` — equilibrated PVA/Na-MMT interfacial configuration (9074 atoms)
+- `interface.data` — equilibrated PVA/Na-MMT interfacial configuration (9074 atoms)
 
 ### Optimization and analysis (Python)
 - `bridge_level2.py` — MD-in-the-loop qEHVI over clay loading (adhesion vs matrix mobility)
