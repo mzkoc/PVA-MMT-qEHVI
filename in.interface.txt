@@ -1,0 +1,52 @@
+# ===== PVA / Na-MMT arayuz dengeleme (CGenFF PVA + INTERFACE kil) =====
+units           real
+atom_style      full
+boundary        p p p
+pair_style      lj/charmmfsw/coul/long 10 12
+pair_modify     mix arithmetic
+bond_style      harmonic
+angle_style     charmm
+dihedral_style  charmmfsw
+improper_style  harmonic
+special_bonds   charmm
+kspace_style    pppm 1e-6
+kspace_modify   slab 3.0
+
+read_data       interface.data
+
+neighbor        2.0 bin
+neigh_modify    delay 5 every 1 check yes
+timestep        1.0
+
+group           clay type 1:16
+group           pva  type 17:24
+
+thermo          1000
+thermo_style    custom step temp press pe etotal
+
+# 1) minimize - arayuz cakismalarini gider
+minimize        1.0e-4 1.0e-6 2000 20000
+
+# 2) 300->400 K isit (PVA filmi yuzeye yayilsin/islatsin)
+reset_timestep  0
+velocity        all create 300.0 8421 dist gaussian
+fix             1 all nvt temp 300.0 400.0 100.0
+run             50000
+unfix           1
+
+# 3) 400 K'de tut - islanma
+fix             1 all nvt temp 400.0 400.0 100.0
+run             120000
+unfix           1
+
+# 4) 400->300 K yavas sogut
+fix             1 all nvt temp 400.0 300.0 100.0
+run             100000
+unfix           1
+
+# 5) 300 K uretim + kayit
+fix             1 all nvt temp 300.0 300.0 100.0
+dump            1 all custom 5000 interface.lammpstrj id type x y z
+run             100000
+write_data      interface_equil.data
+print           "==> Arayuz dengeleme tamamlandi"
