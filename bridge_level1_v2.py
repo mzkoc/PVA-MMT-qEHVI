@@ -1,26 +1,20 @@
 """
 ============================================================================
- KOPRU - Seviye 2:  qEHVI <-> GERCEK MD   (tasarim degiskeni = KIL YUKU)
+ KOPRU - Seviye 1 (v2):  qEHVI <-> GERCEK MD   -- uzun olcum penceresi
 ============================================================================
- Tasarim degiskeni:  PVA zincir sayisi n_chain in [13, 50]
-                      (dusuk n = yuksek kil yuku)
- Amaclar (ayni MD kosusundan, ikisi de MAKSIMIZE):
-   1) arayuz adhezyonu |E_adh| (mJ/m^2)   -> kil yuku arttikca AZALIR (doygunlukla)
-   2) PVA matris mobilitesi (MSD, esneklik gostergesi) -> kil yuku arttikca ARTAR
- Bunlar CELISIR: yuksek kil yuku (az PVA)  -> zayif yapisma + hareketli/esnek matris;
-                 dusuk kil yuku (cok PVA)  -> guclu yapisma + yogun/rijit matris.
- (Bkz. makale Bolum 4.6-4.7 ve Fig. 7.)
- -> qEHVI bu adhezyon-esneklik trade-off'unu gercek MD ile haritalar.
+ v1'e gore degisiklikler:
+   - Sicaklik araligi [300, 400] K  (Tg ~330-350 K'yi CAPRAZLAR ->
+     Tg altinda dusuk hareketlilik, ustunde keskin artis -> net trade-off)
+   - Dengeleme 10 ps, MSD olcumu 20 ps  (v1'de 1 ps idi -> cok kisaydi)
 
- run_md(n_chain):
-   1) interface_equil.data'dan delete_atoms ile n_chain PVA zinciri birakir
-   2) 300 K'de kisa NVT dengeler
-   3) adhezyon (mJ/m^2) + PVA MSD olcer
-   YENI SISTEM HER CAGRIDA URETILIR (Seviye 1'den farki bu).
+ Amaclar (ayni MD kosusundan, ikisi de MAKSIMIZE):
+   1) |E_adh|  (adhezyon gucu)     2) MSD (PVA hareketliligi)
+
+ SURE UYARISI: her MD ~30000 adim (~15 dk, -np 10). Toplam 6 kosu ~ 1.5 saat.
+   Daha hizli istersen N_ROUNDS'u 2 yap (5 kosu) ya da olcumu kisalt.
 
  CALISTIR (mobo ortaminda, ~/CLAY/interface klasorunde):
-   python bridge_level2.py
-   (LAMMPS'i 'conda run -n md' ile cagirir.)
+   python bridge_level1_v2.py
 ============================================================================
 """
 
@@ -50,24 +44,17 @@ tkwargs = {"dtype": torch.double, "device": "cpu"}
 
 # ------------------------------------------------------------------ #
 WORKDIR = Path.home() / "CLAY" / "interface"
-BASE = "interface_equil.data"          # 50 zincirli dengelenmis referans
+DATA = "interface_equil.data"
 LAMMPS_CMD = "conda run -n md mpirun -np 10 lmp"
+# Alternatif: "/home/mzahid/miniconda/envs/md/bin/mpirun -np 10 /home/mzahid/miniconda/envs/md/bin/lmp"
 
-# kil alani (mJ/m^2 donusumu icin): 51.918 x 45.077 A^2
-AREA_m2 = 51.918 * 45.077 * 1e-20
-KCAL_TO_J = 6.9477e-21
-
-BOUNDS = torch.tensor([[13.0], [50.0]], **tkwargs)   # PVA zincir sayisi araligi
-N_INIT = 4
+BOUNDS = torch.tensor([[300.0], [400.0]], **tkwargs)   # Tg'yi caprazlar
+N_INIT = 3
 N_ROUNDS = 3
 BATCH = 1
 
-# PVA molekul ID'leri 85-134 (toplam 50 zincir). N birakmak icin (85+N):134 sil.
-PVA_FIRST_MOL = 85
-PVA_LAST_MOL = 134
-
 # ------------------------------------------------------------------ #
-#  LAMMPS: sistem uret + dengele + olc (tek girdi)                    #
+#  uzun pencereli LAMMPS sablonu                                     #
 # ------------------------------------------------------------------ #
 TEMPLATE = """units           real
 atom_style      full
@@ -82,68 +69,52 @@ special_bonds   charmm
 kspace_style    pppm 1e-6
 kspace_modify   slab 3.0
 processors      * * 1
-read_data       BASEFILE
-DELETE_BLOCK
+read_data       DATAFILE
 group           clay type 1:16
 group           pva  type 17:24
 neighbor        2.0 bin
 neigh_modify    delay 5 every 1 check yes
-velocity        all create 300.0 SEED dist gaussian loop geom
-fix             1 all nvt temp 300.0 300.0 100.0
-thermo          2000
-thermo_style    custom step temp pe
+velocity        all create TVAL SEED dist gaussian
+fix             1 all nvt temp TVAL TVAL 100.0
 run             10000
 reset_timestep  0
 compute         msd pva msd
 compute         adh clay group/group pva pair yes kspace yes
 variable        adhv equal c_adh
 variable        msdv equal c_msd[4]
-fix             avea all ave/time 100 100 10000 v_adhv
+fix             avea all ave/time 100 200 20000 v_adhv
+fix             avem all ave/time 100 200 20000 v_msdv
+thermo          2000
 thermo_style    custom step temp c_adh c_msd[4]
-run             10000
+run             20000
 variable        Aout equal f_avea
-variable        Mout equal c_msd[4]
-print           "RESULT NCHAIN ${Aout} ${Mout}"
+variable        Mout equal f_avem
+print           "RESULT TVAL ${Aout} ${Mout}"
 """
 
 
-def run_md(n_chain):
-    n = int(round(float(n_chain)))
-    n = max(13, min(50, n))            # sinirla
+def run_md(T):
+    T = float(T)
     seed = random.randint(1, 99999)
-
-    # silinecek molekul araligi: (85+n) .. 134   (n=50 ise silme yok)
-    if n >= 50:
-        delete_block = "# tum zincirler (silme yok)"
-    else:
-        first_del = PVA_FIRST_MOL + n
-        delete_block = (f"group           kaldir molecule {first_del}:{PVA_LAST_MOL}\n"
-                        f"delete_atoms    group kaldir bond yes mol yes")
-
-    inp = (TEMPLATE.replace("BASEFILE", BASE)
-                   .replace("DELETE_BLOCK", delete_block)
-                   .replace("NCHAIN", str(n))
+    inp = (TEMPLATE.replace("DATAFILE", DATA)
+                   .replace("TVAL", f"{T:.1f}")
                    .replace("SEED", str(seed)))
-    fname = WORKDIR / f"in_L2bridge_{n}.txt"
+    fname = WORKDIR / f"in_bridge_{int(round(T))}.txt"
     fname.write_text(inp)
-
-    print(f"   [MD] n_chain={n} kosuluyor (~5 dk) ...", flush=True)
+    print(f"   [MD] T={T:.1f} K kosuluyor (~15 dk) ...", flush=True)
     res = subprocess.run(LAMMPS_CMD.split() + ["-in", fname.name],
                          cwd=str(WORKDIR), capture_output=True, text=True,
-                         timeout=3600)
+                         timeout=5400)
     out = res.stdout + res.stderr
-    m = re.search(r"RESULT\s+(\d+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)", out)
+    m = re.search(r"RESULT\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)", out)
     if not m:
-        raise RuntimeError(f"MD okunamadi (n={n}). Son:\n{out[-1500:]}")
-    adh_kcal, msd = abs(float(m.group(2))), float(m.group(3))
-    # adhezyonu mJ/m^2'ye cevir (kil alani sabit -> adil karsilastirma)
-    adh_mJm2 = adh_kcal * KCAL_TO_J / AREA_m2 * 1e3
-    print(f"   [MD] n_chain={n} -> adhezyon={adh_mJm2:.1f} mJ/m^2, "
-          f"MSD={msd:.2f} A^2", flush=True)
-    return [adh_mJm2, msd]
+        raise RuntimeError(f"MD okunamadi (T={T}). Son:\n{out[-1500:]}")
+    adh, msd = float(m.group(2)), float(m.group(3))
+    print(f"   [MD] T={T:.1f} K -> adhezyon={adh:.1f}, MSD={msd:.2f} A^2",
+          flush=True)
+    return [abs(adh), msd]
 
 
-# ------------------------------------------------------------------ #
 def fit_models(X, Y):
     model = SingleTaskGP(X, Y, input_transform=Normalize(d=1),
                          outcome_transform=Standardize(m=2))
@@ -165,10 +136,10 @@ def select_next(model, X, Y):
 
 
 def main():
-    assert (WORKDIR / BASE).exists(), f"{BASE} yok: {WORKDIR}"
-    sob = SobolEngine(dimension=1, scramble=True, seed=7)
+    assert (WORKDIR / DATA).exists(), f"{DATA} yok: {WORKDIR}"
+    sob = SobolEngine(dimension=1, scramble=True, seed=1)
     X = BOUNDS[0] + (BOUNDS[1] - BOUNDS[0]) * sob.draw(N_INIT).to(**tkwargs)
-    print(f"Baslangic: {N_INIT} gercek MD (farkli kil yukleri)")
+    print(f"Baslangic: {N_INIT} gercek MD")
     Y = torch.stack([torch.tensor(run_md(x), **tkwargs) for x in X])
     print(f"Baslangic HV = {hv(Y):.3f}\n")
 
@@ -180,13 +151,12 @@ def main():
         print(f"Tur {r}: +{BATCH} MD (toplam {X.shape[0]}), HV = {hv(Y):.3f}\n")
 
     mask = is_non_dominated(Y)
-    print("=== PARETO-OPTIMAL KIL YUKLERI ===")
-    print(" n_chain | adhezyon(mJ/m^2)  MSD(mobilite)")
+    print("=== PARETO-OPTIMAL SICAKLIKLAR ===")
+    print("   T[K]  | adhezyon_gucu   MSD (A^2)")
     order = torch.argsort(X.squeeze(-1))
     for x, y, nd in zip(X[order], Y[order], mask[order]):
         tag = " *" if nd else "  "
-        print(f"   {int(round(float(x[0]))):3d}   |   {float(y[0]):7.1f}       "
-              f"{float(y[1]):6.2f}{tag}")
+        print(f"  {float(x[0]):5.1f}  |  {float(y[0]):10.1f}   {float(y[1]):7.2f}{tag}")
     print("  (* = Pareto-optimal)")
 
 

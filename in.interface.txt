@@ -1,7 +1,7 @@
 # ===== PVA / Na-MMT arayuz dengeleme (CGenFF PVA + INTERFACE kil) =====
 units           real
 atom_style      full
-boundary        p p p
+boundary        p p f
 pair_style      lj/charmmfsw/coul/long 10 12
 pair_modify     mix arithmetic
 bond_style      harmonic

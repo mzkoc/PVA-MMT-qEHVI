@@ -1,0 +1,31 @@
+nohup: ignoring input
+Baslangic: 3 gercek MD
+   [MD] T=326.8 K kosuluyor (~15 dk) ...
+   [MD] T=326.8 K -> adhezyon=-1489.3, MSD=0.72 A^2
+   [MD] T=380.2 K kosuluyor (~15 dk) ...
+   [MD] T=380.2 K -> adhezyon=-1468.4, MSD=1.09 A^2
+   [MD] T=358.6 K kosuluyor (~15 dk) ...
+   [MD] T=358.6 K -> adhezyon=-1474.3, MSD=0.83 A^2
+Baslangic HV = 1.485
+
+   [MD] T=304.3 K kosuluyor (~15 dk) ...
+   [MD] T=304.3 K -> adhezyon=-1495.4, MSD=0.59 A^2
+Tur 1: +1 MD (toplam 4), HV = 4.621
+
+   [MD] T=338.4 K kosuluyor (~15 dk) ...
+   [MD] T=338.4 K -> adhezyon=-1452.5, MSD=0.79 A^2
+Tur 2: +1 MD (toplam 5), HV = 12.994
+
+   [MD] T=392.7 K kosuluyor (~15 dk) ...
+   [MD] T=392.7 K -> adhezyon=-1502.9, MSD=1.29 A^2
+Tur 3: +1 MD (toplam 6), HV = 38.107
+
+=== PARETO-OPTIMAL SICAKLIKLAR ===
+   T[K]  | adhezyon_gucu   MSD (A^2)
+  304.3  |      1495.4      0.59  
+  326.8  |      1489.3      0.72  
+  338.4  |      1452.5      0.79  
+  358.6  |      1474.3      0.83  
+  380.2  |      1468.4      1.09  
+  392.7  |      1502.9      1.29 *
+  (* = Pareto-optimal)
